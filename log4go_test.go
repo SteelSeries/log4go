@@ -166,26 +166,28 @@ func TestLogger(t *testing.T) {
 	if sl == nil {
 		t.Fatalf("NewDefaultLogger should never return nil")
 	}
-	if lw, exist := sl["stdout"]; lw == nil || exist != true {
+	if lw, exist := sl.filters["stdout"]; lw == nil || exist != true {
 		t.Fatalf("NewDefaultLogger produced invalid logger (DNE or nil)")
 	}
-	if sl["stdout"].Level != WARNING {
+	if sl.filters["stdout"].Level != WARNING {
 		t.Fatalf("NewDefaultLogger produced invalid logger (incorrect level)")
 	}
-	if len(sl) != 1 {
+	if len(sl.filters) != 1 {
 		t.Fatalf("NewDefaultLogger produced invalid logger (incorrect map count)")
 	}
 
 	//func (l *Logger) AddFilter(name string, level int, writer LogWriter) {}
-	l := make(Logger)
+	l := &Logger{
+		filters: make(map[string]*Filter),
+	}
 	l.AddFilter("stdout", DEBUG, NewConsoleLogWriter())
-	if lw, exist := l["stdout"]; lw == nil || exist != true {
+	if lw, exist := l.filters["stdout"]; lw == nil || exist != true {
 		t.Fatalf("AddFilter produced invalid logger (DNE or nil)")
 	}
-	if l["stdout"].Level != DEBUG {
+	if l.filters["stdout"].Level != DEBUG {
 		t.Fatalf("AddFilter produced invalid logger (incorrect level)")
 	}
-	if len(l) != 1 {
+	if len(l.filters) != 1 {
 		t.Fatalf("AddFilter produced invalid logger (incorrect map count)")
 	}
 
@@ -226,7 +228,9 @@ func TestLogOutput(t *testing.T) {
 	}(LogBufferLength)
 	LogBufferLength = 0
 
-	l := make(Logger)
+	l := &Logger{
+		filters: make(map[string]*Filter),
+	}
 
 	// Delete and open the output log without a timestamp (for a constant md5sum)
 	l.AddFilter("file", FINEST, NewFileLogWriter(testLogFile, false).SetFormat("[%L] %M"))
@@ -311,106 +315,109 @@ func TestXMLConfig(t *testing.T) {
 		t.Fatalf("Could not open %s for writing: %s", configfile, err)
 	}
 
-	fmt.Fprintln(fd, "<logging>")
-	fmt.Fprintln(fd, "  <filter enabled=\"true\">")
-	fmt.Fprintln(fd, "    <tag>stdout</tag>")
-	fmt.Fprintln(fd, "    <type>console</type>")
-	fmt.Fprintln(fd, "    <!-- level is (:?FINEST|FINE|DEBUG|TRACE|INFO|WARNING|ERROR) -->")
-	fmt.Fprintln(fd, "    <level>DEBUG</level>")
-	fmt.Fprintln(fd, "  </filter>")
-	fmt.Fprintln(fd, "  <filter enabled=\"true\">")
-	fmt.Fprintln(fd, "    <tag>file</tag>")
-	fmt.Fprintln(fd, "    <type>file</type>")
-	fmt.Fprintln(fd, "    <level>FINEST</level>")
-	fmt.Fprintln(fd, "    <property name=\"filename\">test.log</property>")
-	fmt.Fprintln(fd, "    <!--")
-	fmt.Fprintln(fd, "       %T - Time (15:04:05 MST)")
-	fmt.Fprintln(fd, "       %t - Time (15:04)")
-	fmt.Fprintln(fd, "       %D - Date (2006/01/02)")
-	fmt.Fprintln(fd, "       %d - Date (01/02/06)")
-	fmt.Fprintln(fd, "       %L - Level (FNST, FINE, DEBG, TRAC, WARN, EROR, CRIT)")
-	fmt.Fprintln(fd, "       %S - Source")
-	fmt.Fprintln(fd, "       %M - Message")
-	fmt.Fprintln(fd, "       It ignores unknown format strings (and removes them)")
-	fmt.Fprintln(fd, "       Recommended: \"[%D %T] [%L] (%S) %M\"")
-	fmt.Fprintln(fd, "    -->")
-	fmt.Fprintln(fd, "    <property name=\"format\">[%D %T] [%L] (%S) %M</property>")
-	fmt.Fprintln(fd, "    <property name=\"rotate\">false</property> <!-- true enables log rotation, otherwise append -->")
-	fmt.Fprintln(fd, "    <property name=\"maxsize\">0M</property> <!-- \\d+[KMG]? Suffixes are in terms of 2**10 -->")
-	fmt.Fprintln(fd, "    <property name=\"maxlines\">0K</property> <!-- \\d+[KMG]? Suffixes are in terms of thousands -->")
-	fmt.Fprintln(fd, "    <property name=\"daily\">true</property> <!-- Automatically rotates when a log message is written after midnight -->")
-	fmt.Fprintln(fd, "  </filter>")
-	fmt.Fprintln(fd, "  <filter enabled=\"true\">")
-	fmt.Fprintln(fd, "    <tag>xmllog</tag>")
-	fmt.Fprintln(fd, "    <type>xml</type>")
-	fmt.Fprintln(fd, "    <level>TRACE</level>")
-	fmt.Fprintln(fd, "    <property name=\"filename\">trace.xml</property>")
-	fmt.Fprintln(fd, "    <property name=\"rotate\">true</property> <!-- true enables log rotation, otherwise append -->")
-	fmt.Fprintln(fd, "    <property name=\"maxsize\">100M</property> <!-- \\d+[KMG]? Suffixes are in terms of 2**10 -->")
-	fmt.Fprintln(fd, "    <property name=\"maxrecords\">6K</property> <!-- \\d+[KMG]? Suffixes are in terms of thousands -->")
-	fmt.Fprintln(fd, "    <property name=\"daily\">false</property> <!-- Automatically rotates when a log message is written after midnight -->")
-	fmt.Fprintln(fd, "  </filter>")
-	fmt.Fprintln(fd, "  <filter enabled=\"false\"><!-- enabled=false means this logger won't actually be created -->")
-	fmt.Fprintln(fd, "    <tag>donotopen</tag>")
-	fmt.Fprintln(fd, "    <type>socket</type>")
-	fmt.Fprintln(fd, "    <level>FINEST</level>")
-	fmt.Fprintln(fd, "    <property name=\"endpoint\">192.168.1.255:12124</property> <!-- recommend UDP broadcast -->")
-	fmt.Fprintln(fd, "    <property name=\"protocol\">udp</property> <!-- tcp or udp -->")
-	fmt.Fprintln(fd, "  </filter>")
-	fmt.Fprintln(fd, "</logging>")
+	// This uses Fprintf instead of Fprintln because go doesn't like our formatting directives in these strings
+	fmt.Fprintf(fd, "%s\n", "<logging>")
+	fmt.Fprintf(fd, "%s\n", "  <filter enabled=\"true\">")
+	fmt.Fprintf(fd, "%s\n", "    <tag>stdout</tag>")
+	fmt.Fprintf(fd, "%s\n", "    <type>console</type>")
+	fmt.Fprintf(fd, "%s\n", "    <!-- level is (:?FINEST|FINE|DEBUG|TRACE|INFO|WARNING|ERROR) -->")
+	fmt.Fprintf(fd, "%s\n", "    <level>DEBUG</level>")
+	fmt.Fprintf(fd, "%s\n", "  </filter>")
+	fmt.Fprintf(fd, "%s\n", "  <filter enabled=\"true\">")
+	fmt.Fprintf(fd, "%s\n", "    <tag>file</tag>")
+	fmt.Fprintf(fd, "%s\n", "    <type>file</type>")
+	fmt.Fprintf(fd, "%s\n", "    <level>FINEST</level>")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"filename\">test.log</property>")
+	fmt.Fprintf(fd, "%s\n", "    <!--")
+	fmt.Fprintf(fd, "%s\n", "       %T - Time (15:04:05 MST)")
+	fmt.Fprintf(fd, "%s\n", "       %t - Time (15:04)")
+	fmt.Fprintf(fd, "%s\n", "       %D - Date (2006/01/02)")
+	fmt.Fprintf(fd, "%s\n", "       %d - Date (01/02/06)")
+	fmt.Fprintf(fd, "%s\n", "       %L - Level (FNST, FINE, DEBG, TRAC, WARN, EROR, CRIT)")
+	fmt.Fprintf(fd, "%s\n", "       %S - Source")
+	fmt.Fprintf(fd, "%s\n", "       %M - Message")
+	fmt.Fprintf(fd, "%s\n", "       It ignores unknown format strings (and removes them)")
+	fmt.Fprintf(fd, "%s\n", "       Recommended: \"[%D %T] [%L] (%S) %M\"")
+	fmt.Fprintf(fd, "%s\n", "    -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"format\">[%D %T] [%L] (%S) %M</property>")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"rotate\">false</property> <!-- true enables log rotation, otherwise append -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"maxsize\">0M</property> <!-- \\d+[KMG]? Suffixes are in terms of 2**10 -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"maxlines\">0K</property> <!-- \\d+[KMG]? Suffixes are in terms of thousands -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"daily\">true</property> <!-- Automatically rotates when a log message is written after midnight -->")
+	fmt.Fprintf(fd, "%s\n", "  </filter>")
+	fmt.Fprintf(fd, "%s\n", "  <filter enabled=\"true\">")
+	fmt.Fprintf(fd, "%s\n", "    <tag>xmllog</tag>")
+	fmt.Fprintf(fd, "%s\n", "    <type>xml</type>")
+	fmt.Fprintf(fd, "%s\n", "    <level>TRACE</level>")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"filename\">trace.xml</property>")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"rotate\">true</property> <!-- true enables log rotation, otherwise append -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"maxsize\">100M</property> <!-- \\d+[KMG]? Suffixes are in terms of 2**10 -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"maxrecords\">6K</property> <!-- \\d+[KMG]? Suffixes are in terms of thousands -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"daily\">false</property> <!-- Automatically rotates when a log message is written after midnight -->")
+	fmt.Fprintf(fd, "%s\n", "  </filter>")
+	fmt.Fprintf(fd, "%s\n", "  <filter enabled=\"false\"><!-- enabled=false means this logger won't actually be created -->")
+	fmt.Fprintf(fd, "%s\n", "    <tag>donotopen</tag>")
+	fmt.Fprintf(fd, "%s\n", "    <type>socket</type>")
+	fmt.Fprintf(fd, "%s\n", "    <level>FINEST</level>")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"endpoint\">192.168.1.255:12124</property> <!-- recommend UDP broadcast -->")
+	fmt.Fprintf(fd, "%s\n", "    <property name=\"protocol\">udp</property> <!-- tcp or udp -->")
+	fmt.Fprintf(fd, "%s\n", "  </filter>")
+	fmt.Fprintf(fd, "%s\n", "</logging>")
 	fd.Close()
 
-	log := make(Logger)
+	log := &Logger{
+		filters: make(map[string]*Filter),
+	}
 	log.LoadConfiguration(configfile)
 	defer os.Remove("trace.xml")
 	defer os.Remove("test.log")
 	defer log.Close()
 
 	// Make sure we got all loggers
-	if len(log) != 3 {
-		t.Fatalf("XMLConfig: Expected 3 filters, found %d", len(log))
+	if len(log.filters) != 3 {
+		t.Fatalf("XMLConfig: Expected 3 filters, found %d", len(log.filters))
 	}
 
 	// Make sure they're the right keys
-	if _, ok := log["stdout"]; !ok {
+	if _, ok := log.filters["stdout"]; !ok {
 		t.Errorf("XMLConfig: Expected stdout logger")
 	}
-	if _, ok := log["file"]; !ok {
+	if _, ok := log.filters["file"]; !ok {
 		t.Fatalf("XMLConfig: Expected file logger")
 	}
-	if _, ok := log["xmllog"]; !ok {
+	if _, ok := log.filters["xmllog"]; !ok {
 		t.Fatalf("XMLConfig: Expected xmllog logger")
 	}
 
 	// Make sure they're the right type
-	if _, ok := log["stdout"].LogWriter.(ConsoleLogWriter); !ok {
-		t.Fatalf("XMLConfig: Expected stdout to be ConsoleLogWriter, found %T", log["stdout"].LogWriter)
+	if _, ok := log.filters["stdout"].LogWriter.(ConsoleLogWriter); !ok {
+		t.Fatalf("XMLConfig: Expected stdout to be ConsoleLogWriter, found %T", log.filters["stdout"].LogWriter)
 	}
-	if _, ok := log["file"].LogWriter.(*FileLogWriter); !ok {
-		t.Fatalf("XMLConfig: Expected file to be *FileLogWriter, found %T", log["file"].LogWriter)
+	if _, ok := log.filters["file"].LogWriter.(*FileLogWriter); !ok {
+		t.Fatalf("XMLConfig: Expected file to be *FileLogWriter, found %T", log.filters["file"].LogWriter)
 	}
-	if _, ok := log["xmllog"].LogWriter.(*FileLogWriter); !ok {
-		t.Fatalf("XMLConfig: Expected xmllog to be *FileLogWriter, found %T", log["xmllog"].LogWriter)
+	if _, ok := log.filters["xmllog"].LogWriter.(*FileLogWriter); !ok {
+		t.Fatalf("XMLConfig: Expected xmllog to be *FileLogWriter, found %T", log.filters["xmllog"].LogWriter)
 	}
 
 	// Make sure levels are set
-	if lvl := log["stdout"].Level; lvl != DEBUG {
+	if lvl := log.filters["stdout"].Level; lvl != DEBUG {
 		t.Errorf("XMLConfig: Expected stdout to be set to level %d, found %d", DEBUG, lvl)
 	}
-	if lvl := log["file"].Level; lvl != FINEST {
+	if lvl := log.filters["file"].Level; lvl != FINEST {
 		t.Errorf("XMLConfig: Expected file to be set to level %d, found %d", FINEST, lvl)
 	}
-	if lvl := log["xmllog"].Level; lvl != TRACE {
+	if lvl := log.filters["xmllog"].Level; lvl != TRACE {
 		t.Errorf("XMLConfig: Expected xmllog to be set to level %d, found %d", TRACE, lvl)
 	}
 
 	// Make sure the w is open and points to the right file
-	if fname := log["file"].LogWriter.(*FileLogWriter).file.Name(); fname != "test.log" {
+	if fname := log.filters["file"].LogWriter.(*FileLogWriter).file.Name(); fname != "test.log" {
 		t.Errorf("XMLConfig: Expected file to have opened %s, found %s", "test.log", fname)
 	}
 
 	// Make sure the XLW is open and points to the right file
-	if fname := log["xmllog"].LogWriter.(*FileLogWriter).file.Name(); fname != "trace.xml" {
+	if fname := log.filters["xmllog"].LogWriter.(*FileLogWriter).file.Name(); fname != "trace.xml" {
 		t.Errorf("XMLConfig: Expected xmllog to have opened %s, found %s", "trace.xml", fname)
 	}
 
@@ -476,7 +483,9 @@ func BenchmarkConsoleUtilNotLog(b *testing.B) {
 }
 
 func BenchmarkFileLog(b *testing.B) {
-	sl := make(Logger)
+	sl := &Logger{
+		filters: make(map[string]*Filter),
+	}
 	b.StopTimer()
 	sl.AddFilter("file", INFO, NewFileLogWriter("benchlog.log", false))
 	b.StartTimer()
@@ -488,7 +497,9 @@ func BenchmarkFileLog(b *testing.B) {
 }
 
 func BenchmarkFileNotLogged(b *testing.B) {
-	sl := make(Logger)
+	sl := &Logger{
+		filters: make(map[string]*Filter),
+	}
 	b.StopTimer()
 	sl.AddFilter("file", INFO, NewFileLogWriter("benchlog.log", false))
 	b.StartTimer()
@@ -500,7 +511,9 @@ func BenchmarkFileNotLogged(b *testing.B) {
 }
 
 func BenchmarkFileUtilLog(b *testing.B) {
-	sl := make(Logger)
+	sl := &Logger{
+		filters: make(map[string]*Filter),
+	}
 	b.StopTimer()
 	sl.AddFilter("file", INFO, NewFileLogWriter("benchlog.log", false))
 	b.StartTimer()
@@ -512,7 +525,9 @@ func BenchmarkFileUtilLog(b *testing.B) {
 }
 
 func BenchmarkFileUtilNotLog(b *testing.B) {
-	sl := make(Logger)
+	sl := &Logger{
+		filters: make(map[string]*Filter),
+	}
 	b.StopTimer()
 	sl.AddFilter("file", INFO, NewFileLogWriter("benchlog.log", false))
 	b.StartTimer()

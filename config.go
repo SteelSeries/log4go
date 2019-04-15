@@ -29,8 +29,11 @@ type xmlLoggerConfig struct {
 }
 
 // Load XML configuration; see examples/example.xml for documentation
-func (log Logger) LoadConfiguration(filename string) {
+func (log *Logger) LoadConfiguration(filename string) {
 	log.Close()
+
+	log.mutex.Lock()
+	defer log.mutex.Unlock()
 
 	// Open the configuration file
 	fd, err := os.Open(filename)
@@ -127,7 +130,7 @@ func (log Logger) LoadConfiguration(filename string) {
 			continue
 		}
 
-		log[xmlfilt.Tag] = &Filter{lvl, filt}
+		log.filters[xmlfilt.Tag] = &Filter{lvl, filt}
 	}
 }
 
