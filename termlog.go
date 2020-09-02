@@ -9,14 +9,24 @@ import (
 )
 
 var stdout io.Writer = os.Stdout
+var stderr io.Writer = os.Stderr
 
 // This is the standard writer that prints to standard output.
 type ConsoleLogWriter chan *LogRecord
 
-// This creates a new ConsoleLogWriter
+// This creates a new ConsoleLogWriter writing to stdout
 func NewConsoleLogWriter() ConsoleLogWriter {
+	return newConsoleLogWriterWithIOWriter(stdout)
+}
+
+// This creates a new ConsoleLogWriter writing to stderr
+func NewConsoleErrorLogWriter() ConsoleLogWriter {
+	return newConsoleLogWriterWithIOWriter(stderr)
+}
+
+func newConsoleLogWriterWithIOWriter(writer io.Writer) ConsoleLogWriter {
 	records := make(ConsoleLogWriter, LogBufferLength)
-	go records.run(stdout)
+	go records.run(writer)
 	return records
 }
 
