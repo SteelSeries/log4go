@@ -82,7 +82,7 @@ var logRecordWriteTests = []struct {
 	Console string
 }{
 	{
-		Test: "Normal message",
+		Test: "Critical message",
 		Record: &LogRecord{
 			Level:   CRITICAL,
 			Source:  "source",
@@ -91,13 +91,33 @@ var logRecordWriteTests = []struct {
 		},
 		Console: "[02/13/09 23:31:30] [CRIT] message\n",
 	},
+	{
+		Test: "Error message",
+		Record: &LogRecord{
+			Level:   ERROR,
+			Source:  "source",
+			Message: "message",
+			Created: now,
+		},
+		Console: "[02/13/09 23:31:30] [EROR] message\n",
+	},
+	{
+		Test: "Normal message",
+		Record: &LogRecord{
+			Level:   INFO,
+			Source:  "source",
+			Message: "message",
+			Created: now,
+		},
+		Console: "[02/13/09 23:31:30] [INFO] message\n",
+	},
 }
 
-func TestConsoleLogWriter(t *testing.T) {
+func TestConsoleLogWriterWithoutError(t *testing.T) {
 	console := make(ConsoleLogWriter)
 
 	r, w := io.Pipe()
-	go console.run(w)
+	go console.runWithoutErrorWriter(w)
 	defer console.Close()
 
 	buf := make([]byte, 1024)
@@ -111,6 +131,38 @@ func TestConsoleLogWriter(t *testing.T) {
 		if got, want := string(buf[:n]), test.Console; got != want {
 			t.Errorf("%s:  got %q", name, got)
 			t.Errorf("%s: want %q", name, want)
+		}
+	}
+}
+
+func TestConsoleLogWriterWithError(t *testing.T) {
+	console := make(ConsoleLogWriter)
+
+	r1, w1 := io.Pipe()
+	r2, w2 := io.Pipe()
+	go console.run(w1, w2)
+	defer console.Close()
+
+	buf := make([]byte, 1024)
+
+	for _, test := range logRecordWriteTests {
+		name := test.Test
+
+		console.LogWrite(test.Record)
+		if test.Record.Level == ERROR || test.Record.Level == CRITICAL {
+			n, _ := r2.Read(buf)
+
+			if got, want := string(buf[:n]), test.Console; got != want {
+				t.Errorf("%s:  got %q", name, got)
+				t.Errorf("%s: want %q", name, want)
+			}
+		} else {
+			n, _ := r1.Read(buf)
+
+			if got, want := string(buf[:n]), test.Console; got != want {
+				t.Errorf("%s:  got %q", name, got)
+				t.Errorf("%s: want %q", name, want)
+			}
 		}
 	}
 }
